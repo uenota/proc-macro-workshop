@@ -20,7 +20,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
             }),
             _ => panic!("no unnamed fields are allowed"),
         },
-        _ => panic!("expected struct"),
+        _ => panic!("expects struct"),
     };
     let initial_fields = match input.data {
         Data::Struct(data) => match data.fields {
@@ -30,7 +30,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
             }),
             _ => panic!("no unnamed fields are allowed"),
         },
-        _ => panic!("expected struct"),
+        _ => panic!("expects struct"),
     };
 
     let expand = quote! {

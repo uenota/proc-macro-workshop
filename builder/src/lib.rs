@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
-use syn::{parse_macro_input, Data, DeriveInput, Fields};
+use syn::{parse_macro_input, Data, DeriveInput, Fields, Ident, Type};
 
 #[proc_macro_derive(Builder)]
 pub fn derive(input: TokenStream) -> TokenStream {
@@ -10,24 +10,17 @@ pub fn derive(input: TokenStream) -> TokenStream {
     let vis = input.vis;
 
     let builder_name = format_ident!("{}Builder", ident);
-    let data = input.data.clone();
-    let fields = match data {
+    let (idents, types): (Vec<Ident>, Vec<Type>) = match input.data {
         Data::Struct(data) => match data.fields {
-            Fields::Named(fields) => fields.named.into_iter().map(|field| {
-                let ident = field.ident;
-                let ty = field.ty;
-                quote! { #ident: Option<#ty> }
-            }),
-            _ => panic!("no unnamed fields are allowed"),
-        },
-        _ => panic!("expects struct"),
-    };
-    let initial_fields = match input.data {
-        Data::Struct(data) => match data.fields {
-            Fields::Named(fields) => fields.named.into_iter().map(|field| {
-                let ident = field.ident;
-                quote! { #ident: None }
-            }),
+            Fields::Named(fields) => fields
+                .named
+                .into_iter()
+                .map(|field| {
+                    let ident = field.ident;
+                    let ty = field.ty;
+                    (ident.unwrap(), ty)
+                })
+                .unzip(),
             _ => panic!("no unnamed fields are allowed"),
         },
         _ => panic!("expects struct"),
@@ -35,13 +28,13 @@ pub fn derive(input: TokenStream) -> TokenStream {
 
     let expand = quote! {
         #vis struct #builder_name {
-           #(#fields),*
+           #(#idents: Option<#types>),*
         }
 
         impl #ident {
             pub fn builder() -> #builder_name {
                 #builder_name {
-                    #(#initial_fields),*
+                    #(#idents: None),*
                 }
             }
         }

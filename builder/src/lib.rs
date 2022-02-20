@@ -36,6 +36,15 @@ pub fn derive(input: TokenStream) -> TokenStream {
                 self.#idents = Some(#idents);
                 self
             })*
+
+            pub fn build(&mut self) -> Result<#ident, Box<dyn std::error::Error>> {
+                #(if self.#idents.is_none(){
+                    return Err("required field is missing".into())
+                })*
+                Ok(#ident {
+                    #(#idents: self.#idents.clone().unwrap()),*
+                })
+            }
         }
 
         impl #ident {

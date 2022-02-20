@@ -31,6 +31,13 @@ pub fn derive(input: TokenStream) -> TokenStream {
            #(#idents: Option<#types>),*
         }
 
+        impl #builder_name {
+            #(pub fn #idents(&mut self, #idents: #types) -> &mut Self {
+                self.#idents = Some(#idents);
+                self
+            })*
+        }
+
         impl #ident {
             pub fn builder() -> #builder_name {
                 #builder_name {

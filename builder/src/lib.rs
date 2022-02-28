@@ -23,19 +23,12 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
     let builder_struct = build_builder_struct(&fields, &builder_name, &vis);
     let builder_impl = build_builder_impl(&fields, &builder_name, &ident);
-    let builder_default_values = build_builder_defaults(&fields);
+    let struct_impl = build_struct_impl(&fields, &builder_name, &ident);
 
     let expand = quote! {
         #builder_struct
         #builder_impl
-
-        impl #ident {
-            pub fn builder() -> #builder_name {
-                #builder_name {
-                    #(#builder_default_values),*
-                }
-            }
-        }
+        #struct_impl
     };
     proc_macro::TokenStream::from(expand)
 }
@@ -118,17 +111,26 @@ fn build_builder_impl(
     }
 }
 
-fn build_builder_defaults(fields: &FieldsNamed) -> Vec<TokenStream> {
-    fields
-        .named
-        .iter()
-        .map(|field| {
-            let ident = field.ident.as_ref();
-            quote! {
-                #ident: None
+fn build_struct_impl(
+    fields: &FieldsNamed,
+    builder_name: &Ident,
+    struct_name: &Ident,
+) -> TokenStream {
+    let field_defaults = fields.named.iter().map(|field| {
+        let ident = field.ident.as_ref();
+        quote! {
+            #ident: None
+        }
+    });
+    quote! {
+        impl #struct_name {
+            pub fn builder() -> #builder_name {
+                #builder_name {
+                    #(#field_defaults),*
+                }
             }
-        })
-        .collect()
+        }
+    }
 }
 
 fn is_option(ty: &Type) -> bool {

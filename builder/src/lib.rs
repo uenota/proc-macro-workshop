@@ -18,28 +18,16 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             Fields::Named(fields) => fields,
             _ => panic!("no unnamed fields are allowed"),
         },
-        _ => panic!("this macro can be applied to only struct"),
+        _ => panic!("this macro can be applied only to structaa"),
     };
 
     let builder_struct = build_builder_struct(&fields, &builder_name, &vis);
+    let builder_impl = build_builder_impl(&fields, &builder_name, &ident);
     let builder_default_values = build_builder_defaults(&fields);
-    let checks = build_checks(&fields);
-    let setters = build_setters(&fields);
-    let struct_fields = build_struct_fields(&fields);
 
     let expand = quote! {
         #builder_struct
-
-        impl #builder_name {
-            #setters
-
-            pub fn build(&mut self) -> Result<#ident, Box<dyn std::error::Error>> {
-                #(#checks)*
-                Ok(#ident {
-                    #(#struct_fields),*
-                })
-            }
-        }
+        #builder_impl
 
         impl #ident {
             pub fn builder() -> #builder_name {
@@ -54,7 +42,7 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
 fn build_builder_struct(
     fields: &FieldsNamed,
-    struct_name: &Ident,
+    builder_name: &Ident,
     visibility: &Visibility,
 ) -> TokenStream {
     let (idents, types): (Vec<&Ident>, Vec<&Type>) = fields
@@ -67,14 +55,18 @@ fn build_builder_struct(
         })
         .unzip();
     quote! {
-        #visibility struct #struct_name {
+        #visibility struct #builder_name {
             #(#idents: Option<#types>),*
         }
     }
 }
 
-fn build_checks(fields: &FieldsNamed) -> Vec<TokenStream> {
-    fields
+fn build_builder_impl(
+    fields: &FieldsNamed,
+    builder_name: &Ident,
+    struct_name: &Ident,
+) -> TokenStream {
+    let checks = fields
         .named
         .iter()
         .filter(|field| !is_option(&field.ty))
@@ -86,48 +78,44 @@ fn build_checks(fields: &FieldsNamed) -> Vec<TokenStream> {
                     return Err(#err.into());
                 }
             }
-        })
-        .collect()
-}
+        });
 
-fn build_setters(fields: &FieldsNamed) -> TokenStream {
-    let (idents, types): (Vec<&Ident>, Vec<&Type>) = fields
-        .named
-        .iter()
-        .map(|field| {
-            let ident = field.ident.as_ref();
-            let ty = unwrap_option(&field.ty).unwrap_or(&field.ty);
-            (ident.unwrap(), ty)
-        })
-        .unzip();
-
-    quote! {
-        #(
-            pub fn #idents(&mut self, #idents: #types) -> &mut Self {
-                self.#idents = Some(#idents);
+    let setters = fields.named.iter().map(|field| {
+        let ident = &field.ident;
+        let ty = unwrap_option(&field.ty).unwrap_or(&field.ty);
+        quote! {
+            pub fn #ident(&mut self, #ident: #ty) -> &mut Self {
+                self.#ident = Some(#ident);
                 self
             }
-        )*
-    }
-}
+        }
+    });
 
-fn build_struct_fields(fields: &FieldsNamed) -> Vec<TokenStream> {
-    fields
-        .named
-        .iter()
-        .map(|field| {
-            let ident = field.ident.as_ref();
-            if is_option(&field.ty) {
-                quote! {
-                    #ident: self.#ident.clone()
-                }
-            } else {
-                quote! {
-                    #ident: self.#ident.clone().unwrap()
-                }
+    let struct_fields = fields.named.iter().map(|field| {
+        let ident = field.ident.as_ref();
+        if is_option(&field.ty) {
+            quote! {
+                #ident: self.#ident.clone()
             }
-        })
-        .collect()
+        } else {
+            quote! {
+                #ident: self.#ident.clone().unwrap()
+            }
+        }
+    });
+
+    quote! {
+        impl #builder_name {
+            #(#setters)*
+
+            pub fn build(&mut self) -> Result<#struct_name, Box<dyn std::error::Error>> {
+                #(#checks)*
+                Ok(#struct_name {
+                    #(#struct_fields),*
+                })
+            }
+        }
+    }
 }
 
 fn build_builder_defaults(fields: &FieldsNamed) -> Vec<TokenStream> {

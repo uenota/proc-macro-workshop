@@ -54,3 +54,5 @@ Meta {
     }
 }
 ```
+
+Meta::NameValue の attribute 名を validation するべきだがそれは 08 でやるのでこのステップではやらない

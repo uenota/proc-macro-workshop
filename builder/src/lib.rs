@@ -1,8 +1,8 @@
-use proc_macro2::TokenStream;
+use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::{
-    parse_macro_input, Data, DeriveInput, Fields, FieldsNamed, GenericArgument, Ident,
-    PathArguments, PathSegment, Type, Visibility,
+    parse_macro_input, Data, DeriveInput, Fields, FieldsNamed, GenericArgument, Ident, Lit, Meta,
+    MetaList, MetaNameValue, NestedMeta, PathArguments, PathSegment, Type, Visibility,
 };
 
 #[proc_macro_derive(Builder, attributes(builder))]
@@ -38,7 +38,7 @@ fn build_builder_struct(
     builder_name: &Ident,
     visibility: &Visibility,
 ) -> TokenStream {
-    let (idents, types): (Vec<&Ident>, Vec<&Type>) = fields
+    let struct_fields = fields
         .named
         .iter()
         .map(|field| {
@@ -46,10 +46,20 @@ fn build_builder_struct(
             let ty = unwrap_option(&field.ty).unwrap_or(&field.ty);
             (ident.unwrap(), ty)
         })
-        .unzip();
+        .map(|(ident, ty)| {
+            if is_vector(&ty) {
+                quote! {
+                    #ident: #ty
+                }
+            } else {
+                quote! {
+                    #ident: Option<#ty>
+                }
+            }
+        });
     quote! {
         #visibility struct #builder_name {
-            #(#idents: Option<#types>),*
+            #(#struct_fields),*
         }
     }
 }
@@ -63,6 +73,7 @@ fn build_builder_impl(
         .named
         .iter()
         .filter(|field| !is_option(&field.ty))
+        .filter(|field| !is_vector(&field.ty))
         .map(|field| {
             let ident = field.ident.as_ref();
             let err = format!("Required field '{}' is missing", ident.unwrap().to_string());
@@ -74,22 +85,89 @@ fn build_builder_impl(
         });
 
     let setters = fields.named.iter().map(|field| {
-        let ident = &field.ident;
+        let ident_each_name = field
+            .attrs
+            .first()
+            .map(|attr| match attr.parse_meta() {
+                Ok(Meta::List(MetaList {
+                    ref path,
+                    paren_token: _,
+                    ref nested,
+                })) => {
+                    if !path.is_ident("builder") {
+                        panic!("only 'builder' attribute is allowed");
+                    };
+                    match nested.first() {
+                        Some(NestedMeta::Meta(Meta::NameValue(MetaNameValue {
+                            path: _,
+                            eq_token: _,
+                            lit: Lit::Str(ref str),
+                        }))) => {
+                            if !is_vector(&field.ty) {
+                                panic!("'each' attribute can be applied to vector only");
+                            }
+                            Some(str.value())
+                        }
+                        _ => None,
+                    }
+                }
+                _ => None,
+            })
+            .flatten();
+
+        let ident = field.ident.as_ref();
         let ty = unwrap_option(&field.ty).unwrap_or(&field.ty);
-        quote! {
-            pub fn #ident(&mut self, #ident: #ty) -> &mut Self {
-                self.#ident = Some(#ident);
-                self
+        match ident_each_name {
+            Some(name) => {
+                let ty_each = unwrap_vector(ty).unwrap();
+                let ident_each = Ident::new(name.as_str(), Span::call_site());
+                if ident.unwrap().to_string() == name {
+                    quote! {
+                        pub fn #ident_each(&mut self, #ident_each:#ty_each) -> &mut Self {
+                            self.#ident.push(#ident_each);
+                            self
+                        }
+                    }
+                } else {
+                    quote! {
+                        pub fn #ident(&mut self, #ident: #ty) -> &mut Self {
+                            self.#ident = #ident;
+                            self
+                        }
+                        pub fn #ident_each(&mut self, #ident_each: #ty_each) -> &mut Self {
+                            self.#ident.push(#ident_each);
+                            self
+                        }
+                    }
+                }
+            }
+            None => {
+                if is_vector(&ty) {
+                    quote! {
+                        pub fn #ident(&mut self, #ident: #ty) -> &mut Self {
+                            self.#ident = #ident;
+                            self
+                        }
+                    }
+                } else {
+                    quote! {
+                        pub fn #ident(&mut self, #ident: #ty) -> &mut Self {
+                            self.#ident = Some(#ident);
+                            self
+                        }
+                    }
+                }
             }
         }
     });
 
     let struct_fields = fields.named.iter().map(|field| {
         let ident = field.ident.as_ref();
-        if is_option(&field.ty) {
+        if is_option(&field.ty) || is_vector(&field.ty) {
             quote! {
                 #ident: self.#ident.clone()
             }
+        // see what happens if Option<Vec<_>> is unwrapped if content is None
         } else {
             quote! {
                 #ident: self.#ident.clone().unwrap()
@@ -118,8 +196,15 @@ fn build_struct_impl(
 ) -> TokenStream {
     let field_defaults = fields.named.iter().map(|field| {
         let ident = field.ident.as_ref();
-        quote! {
-            #ident: None
+        let ty = &field.ty;
+        if is_vector(&ty) {
+            quote! {
+                #ident: Vec::new()
+            }
+        } else {
+            quote! {
+                #ident: None
+            }
         }
     });
     quote! {
@@ -140,10 +225,28 @@ fn is_option(ty: &Type) -> bool {
     }
 }
 
+fn is_vector(ty: &Type) -> bool {
+    match get_last_path_segment(ty) {
+        Some(seg) => seg.ident == "Vec",
+        _ => false,
+    }
+}
+
 fn unwrap_option(ty: &Type) -> Option<&Type> {
     if !is_option(ty) {
         return None;
     }
+    unwrap_generic_type(ty)
+}
+
+fn unwrap_vector(ty: &Type) -> Option<&Type> {
+    if !is_vector(ty) {
+        return None;
+    }
+    unwrap_generic_type(ty)
+}
+
+fn unwrap_generic_type(ty: &Type) -> Option<&Type> {
     match get_last_path_segment(ty) {
         Some(seg) => match seg.arguments {
             PathArguments::AngleBracketed(ref args) => {

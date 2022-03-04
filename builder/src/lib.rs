@@ -1,4 +1,4 @@
-use proc_macro2::TokenStream;
+use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::{
     parse_macro_input, Data, DeriveInput, Fields, FieldsNamed, GenericArgument, Ident, Lit, Meta,
@@ -38,7 +38,7 @@ fn build_builder_struct(
     builder_name: &Ident,
     visibility: &Visibility,
 ) -> TokenStream {
-    let (idents, types): (Vec<&Ident>, Vec<&Type>) = fields
+    let struct_fields = fields
         .named
         .iter()
         .map(|field| {
@@ -46,10 +46,20 @@ fn build_builder_struct(
             let ty = unwrap_option(&field.ty).unwrap_or(&field.ty);
             (ident.unwrap(), ty)
         })
-        .unzip();
+        .map(|(ident, ty)| {
+            if is_vector(&ty) {
+                quote! {
+                    #ident: #ty
+                }
+            } else {
+                quote! {
+                    #ident: Option<#ty>
+                }
+            }
+        });
     quote! {
         #visibility struct #builder_name {
-            #(#idents: Option<#types>),*
+            #(#struct_fields),*
         }
     }
 }
@@ -63,6 +73,7 @@ fn build_builder_impl(
         .named
         .iter()
         .filter(|field| !is_option(&field.ty))
+        .filter(|field| !is_vector(&field.ty))
         .map(|field| {
             let ident = field.ident.as_ref();
             let err = format!("Required field '{}' is missing", ident.unwrap().to_string());
@@ -83,7 +94,7 @@ fn build_builder_impl(
                     paren_token: _,
                     ref nested,
                 })) => {
-                    if path.is_ident("builder") {
+                    if !path.is_ident("builder") {
                         panic!("only 'builder' attribute is allowed");
                     };
                     match nested.first() {
@@ -109,6 +120,7 @@ fn build_builder_impl(
         match ident_each {
             Some(ident_each) if (ident.unwrap().to_string() == ident_each) => {
                 let ty_each = unwrap_vector(ty).unwrap();
+                let ident_each = Ident::new(ident_each.as_str(), Span::call_site());
                 quote! {
                     pub fn #ident_each(&mut self, #ident_each:#ty_each) -> &mut Self {
                         self.#ident.push(#ident_each);
@@ -118,13 +130,22 @@ fn build_builder_impl(
             }
             Some(ident_each) => {
                 let ty_each = unwrap_vector(ty).unwrap();
+                let ident_each = Ident::new(ident_each.as_str(), Span::call_site());
                 quote! {
                     pub fn #ident(&mut self, #ident: #ty) -> &mut Self {
-                        self.#ident = Some(#ident);
+                        self.#ident = #ident;
                         self
                     }
-                    pub fn #ident_each(&mut self, #ident_each:#ty_each) -> &mut Self {
+                    pub fn #ident_each(&mut self, #ident_each: #ty_each) -> &mut Self {
                         self.#ident.push(#ident_each);
+                        self
+                    }
+                }
+            }
+            None if (is_vector(&ty)) => {
+                quote! {
+                    pub fn #ident(&mut self, #ident: #ty) -> &mut Self {
+                        self.#ident = #ident;
                         self
                     }
                 }
@@ -142,7 +163,7 @@ fn build_builder_impl(
 
     let struct_fields = fields.named.iter().map(|field| {
         let ident = field.ident.as_ref();
-        if is_option(&field.ty) {
+        if is_option(&field.ty) || is_vector(&field.ty) {
             quote! {
                 #ident: self.#ident.clone()
             }
@@ -175,8 +196,15 @@ fn build_struct_impl(
 ) -> TokenStream {
     let field_defaults = fields.named.iter().map(|field| {
         let ident = field.ident.as_ref();
-        quote! {
-            #ident: None
+        let ty = &field.ty;
+        if is_vector(&ty) {
+            quote! {
+                #ident: Vec::new()
+            }
+        } else {
+            quote! {
+                #ident: None
+            }
         }
     });
     quote! {

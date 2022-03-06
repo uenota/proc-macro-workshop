@@ -1,0 +1,7 @@
+attributeに間違った識別子が与えられた際に適切なコンパイルエラーを表示するようにする。compile_error!マクロを使う。
+今回はeach以外をrejectするようにすればよさそう
+
+compile_error!マクロは単純に使うだけだとそこがコンパイラに処理されるときにコンパイルエラーを起こすので、単純に使うだけだとできない。
+syn::Errorを作ってto_compile_errorメソッドを使ってTokenStreamを返すようにする
+
+一旦今までpanicにしていたところをcompile_error!を返すように直す

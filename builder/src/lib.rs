@@ -2,8 +2,13 @@ use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::{
     parse_macro_input, Data, DeriveInput, Fields, FieldsNamed, GenericArgument, Ident, Lit, Meta,
-    MetaList, MetaNameValue, NestedMeta, PathArguments, PathSegment, Type, Visibility,
+    MetaNameValue, NestedMeta, PathArguments, PathSegment, Type, Visibility,
 };
+
+enum LitOrError {
+    Lit(String),
+    Error(syn::Error),
+}
 
 #[proc_macro_derive(Builder, attributes(builder))]
 pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
@@ -16,9 +21,17 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let fields = match input.data {
         Data::Struct(data) => match data.fields {
             Fields::Named(fields) => fields,
-            _ => panic!("no unnamed fields are allowed"),
+            _ => {
+                return syn::Error::new(ident.span(), "expects named fields")
+                    .to_compile_error()
+                    .into()
+            }
         },
-        _ => panic!("this macro can be applied only to struct"),
+        _ => {
+            return syn::Error::new(ident.span(), "expects struct")
+                .to_compile_error()
+                .into()
+        }
     };
 
     let builder_struct = build_builder_struct(&fields, &builder_name, &vis);
@@ -89,24 +102,36 @@ fn build_builder_impl(
             .attrs
             .first()
             .map(|attr| match attr.parse_meta() {
-                Ok(Meta::List(MetaList {
-                    ref path,
-                    paren_token: _,
-                    ref nested,
-                })) => {
+                Ok(Meta::List(list)) => {
+                    let path = &list.path;
+                    let nested = &list.nested;
                     if !path.is_ident("builder") {
-                        panic!("only 'builder' attribute is allowed");
+                        return Some(LitOrError::Error(syn::Error::new(
+                            path.segments.first().unwrap().ident.span(),
+                            "expected `builder(each = \"...\")`",
+                        )));
                     };
                     match nested.first() {
                         Some(NestedMeta::Meta(Meta::NameValue(MetaNameValue {
-                            path: _,
+                            ref path,
                             eq_token: _,
                             lit: Lit::Str(ref str),
                         }))) => {
-                            if !is_vector(&field.ty) {
-                                panic!("'each' attribute can be applied to vector only");
+                            if let Some(name) = path.segments.first() {
+                                if name.ident.to_string() != "each" {
+                                    return Some(LitOrError::Error(syn::Error::new_spanned(
+                                        list,
+                                        "expected `builder(each = \"...\")`",
+                                    )));
+                                }
                             }
-                            Some(str.value())
+                            if !is_vector(&field.ty) {
+                                return Some(LitOrError::Error(syn::Error::new(
+                                    field.ident.clone().unwrap().span(),
+                                    "'each' attribute can be applied to vector only",
+                                )));
+                            }
+                            Some(LitOrError::Lit(str.value()))
                         }
                         _ => None,
                     }
@@ -118,7 +143,7 @@ fn build_builder_impl(
         let ident = field.ident.as_ref();
         let ty = unwrap_option(&field.ty).unwrap_or(&field.ty);
         match ident_each_name {
-            Some(name) => {
+            Some(LitOrError::Lit(name)) => {
                 let ty_each = unwrap_vector(ty).unwrap();
                 let ident_each = Ident::new(name.as_str(), Span::call_site());
                 if ident.unwrap().to_string() == name {
@@ -141,6 +166,7 @@ fn build_builder_impl(
                     }
                 }
             }
+            Some(LitOrError::Error(err)) => err.to_compile_error().into(),
             None => {
                 if is_vector(&ty) {
                     quote! {

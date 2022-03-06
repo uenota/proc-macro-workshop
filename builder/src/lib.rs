@@ -18,7 +18,7 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             Fields::Named(fields) => fields,
             _ => panic!("no unnamed fields are allowed"),
         },
-        _ => panic!("this macro can be applied only to structaa"),
+        _ => panic!("this macro can be applied only to struct"),
     };
 
     let builder_struct = build_builder_struct(&fields, &builder_name, &vis);

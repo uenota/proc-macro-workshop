@@ -1,3 +1,5 @@
+optional なフィールドを受け入れるようにする。optional なフィールドには値が入っていなくても良いが、optional でないフィールドは値が入っていないと build できないようにする。
+
 Optional かどうかの判定には syn::Path::is_ident()は使えないっぽい。以下の説明が関係ある？要調査
 
 > For them to compare equal, it must be the case that:

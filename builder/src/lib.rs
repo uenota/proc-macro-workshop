@@ -89,28 +89,14 @@ fn build_builder_impl(
             .attrs
             .first()
             .map(|attr| match attr.parse_meta() {
-                Ok(Meta::List(MetaList {
-                    ref path,
-                    paren_token: _,
-                    ref nested,
-                })) => {
-                    if !path.is_ident("builder") {
-                        panic!("only 'builder' attribute is allowed");
-                    };
-                    match nested.first() {
-                        Some(NestedMeta::Meta(Meta::NameValue(MetaNameValue {
-                            path: _,
-                            eq_token: _,
-                            lit: Lit::Str(ref str),
-                        }))) => {
-                            if !is_vector(&field.ty) {
-                                panic!("'each' attribute can be applied to vector only");
-                            }
-                            Some(str.value())
-                        }
-                        _ => None,
-                    }
-                }
+                Ok(Meta::List(list)) => match list.nested.first() {
+                    Some(NestedMeta::Meta(Meta::NameValue(MetaNameValue {
+                        path: _,
+                        eq_token: _,
+                        lit: Lit::Str(ref str),
+                    }))) => Some(str.value()),
+                    _ => None,
+                },
                 _ => None,
             })
             .flatten();

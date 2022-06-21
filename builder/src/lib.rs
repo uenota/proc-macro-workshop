@@ -85,7 +85,7 @@ fn build_builder_impl(
         });
 
     let setters = fields.named.iter().map(|field| {
-        let ident_each = field
+        let ident_each_name = field
             .attrs
             .first()
             .map(|attr| match attr.parse_meta() {
@@ -103,44 +103,44 @@ fn build_builder_impl(
 
         let ident = field.ident.as_ref();
         let ty = unwrap_option(&field.ty).unwrap_or(&field.ty);
-        match ident_each {
-            Some(ident_each) if (ident.unwrap().to_string() == ident_each) => {
+        match ident_each_name {
+            Some(name) => {
                 let ty_each = unwrap_vector(ty).unwrap();
-                let ident_each = Ident::new(ident_each.as_str(), Span::call_site());
-                quote! {
-                    pub fn #ident_each(&mut self, #ident_each:#ty_each) -> &mut Self {
-                        self.#ident.push(#ident_each);
-                        self
+                let ident_each = Ident::new(name.as_str(), Span::call_site());
+                if ident.unwrap().to_string() == name {
+                    quote! {
+                        pub fn #ident_each(&mut self, #ident_each:#ty_each) -> &mut Self {
+                            self.#ident.push(#ident_each);
+                            self
+                        }
                     }
-                }
-            }
-            Some(ident_each) => {
-                let ty_each = unwrap_vector(ty).unwrap();
-                let ident_each = Ident::new(ident_each.as_str(), Span::call_site());
-                quote! {
-                    pub fn #ident(&mut self, #ident: #ty) -> &mut Self {
-                        self.#ident = #ident;
-                        self
-                    }
-                    pub fn #ident_each(&mut self, #ident_each: #ty_each) -> &mut Self {
-                        self.#ident.push(#ident_each);
-                        self
-                    }
-                }
-            }
-            None if (is_vector(&ty)) => {
-                quote! {
-                    pub fn #ident(&mut self, #ident: #ty) -> &mut Self {
-                        self.#ident = #ident;
-                        self
+                } else {
+                    quote! {
+                        pub fn #ident(&mut self, #ident: #ty) -> &mut Self {
+                            self.#ident = #ident;
+                            self
+                        }
+                        pub fn #ident_each(&mut self, #ident_each: #ty_each) -> &mut Self {
+                            self.#ident.push(#ident_each);
+                            self
+                        }
                     }
                 }
             }
             None => {
-                quote! {
-                    pub fn #ident(&mut self, #ident: #ty) -> &mut Self {
-                        self.#ident = Some(#ident);
-                        self
+                if is_vector(&ty) {
+                    quote! {
+                        pub fn #ident(&mut self, #ident: #ty) -> &mut Self {
+                            self.#ident = #ident;
+                            self
+                        }
+                    }
+                } else {
+                    quote! {
+                        pub fn #ident(&mut self, #ident: #ty) -> &mut Self {
+                            self.#ident = Some(#ident);
+                            self
+                        }
                     }
                 }
             }

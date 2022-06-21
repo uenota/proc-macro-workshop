@@ -102,40 +102,30 @@ fn build_builder_impl(
             .attrs
             .first()
             .map(|attr| match attr.parse_meta() {
-                Ok(Meta::List(list)) => {
-                    let path = &list.path;
-                    let nested = &list.nested;
-                    if !path.is_ident("builder") {
-                        return Some(LitOrError::Error(syn::Error::new(
-                            path.segments.first().unwrap().ident.span(),
-                            "expected `builder(each = \"...\")`",
-                        )));
-                    };
-                    match nested.first() {
-                        Some(NestedMeta::Meta(Meta::NameValue(MetaNameValue {
-                            ref path,
-                            eq_token: _,
-                            lit: Lit::Str(ref str),
-                        }))) => {
-                            if let Some(name) = path.segments.first() {
-                                if name.ident.to_string() != "each" {
-                                    return Some(LitOrError::Error(syn::Error::new_spanned(
-                                        list,
-                                        "expected `builder(each = \"...\")`",
-                                    )));
-                                }
-                            }
-                            if !is_vector(&field.ty) {
-                                return Some(LitOrError::Error(syn::Error::new(
-                                    field.ident.clone().unwrap().span(),
-                                    "'each' attribute can be applied to vector only",
+                Ok(Meta::List(list)) => match list.nested.first() {
+                    Some(NestedMeta::Meta(Meta::NameValue(MetaNameValue {
+                        ref path,
+                        eq_token: _,
+                        lit: Lit::Str(ref str),
+                    }))) => {
+                        if let Some(name) = path.segments.first() {
+                            if name.ident.to_string() != "each" {
+                                return Some(LitOrError::Error(syn::Error::new_spanned(
+                                    list,
+                                    "expected `builder(each = \"...\")`",
                                 )));
                             }
-                            Some(LitOrError::Lit(str.value()))
                         }
-                        _ => None,
+                        if !is_vector(&field.ty) {
+                            return Some(LitOrError::Error(syn::Error::new(
+                                field.ident.clone().unwrap().span(),
+                                "'each' attribute can be applied to vector only",
+                            )));
+                        }
+                        Some(LitOrError::Lit(str.value()))
                     }
-                }
+                    _ => None,
+                },
                 _ => None,
             })
             .flatten();

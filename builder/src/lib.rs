@@ -116,12 +116,6 @@ fn build_builder_impl(
                                 )));
                             }
                         }
-                        if !is_vector(&field.ty) {
-                            return Some(LitOrError::Error(syn::Error::new(
-                                field.ident.clone().unwrap().span(),
-                                "'each' attribute can be applied to vector only",
-                            )));
-                        }
                         Some(LitOrError::Lit(str.value()))
                     }
                     _ => None,
@@ -183,7 +177,6 @@ fn build_builder_impl(
             quote! {
                 #ident: self.#ident.clone()
             }
-        // see what happens if Option<Vec<_>> is unwrapped if content is None
         } else {
             quote! {
                 #ident: self.#ident.clone().unwrap()
